@@ -45,6 +45,7 @@ import org.wso2.carbon.identity.dpop.util.DPoPConstants;
 import org.wso2.carbon.identity.dpop.util.OuthTokenType;
 import org.wso2.carbon.identity.oauth.common.DPoPTokenState;
 import org.wso2.carbon.identity.oauth.common.exception.InvalidOAuthClientException;
+import org.wso2.carbon.identity.oauth.config.OAuthServerConfiguration;
 import org.wso2.carbon.identity.oauth.dao.OAuthAppDO;
 import org.wso2.carbon.identity.oauth.event.AbstractOAuthEventInterceptor;
 import org.wso2.carbon.identity.oauth2.IdentityOAuth2Exception;
@@ -68,6 +69,8 @@ import java.util.Date;
 import java.util.Map;
 
 import static org.wso2.carbon.identity.dpop.util.DPoPConstants.INVALID_DPOP_ERROR;
+import static org.wso2.carbon.identity.dpop.util.DPoPConstants.TOKEN_ENDPOINT_URI;
+import static org.wso2.carbon.identity.dpop.util.DPoPConstants.URI_HEADER;
 
 /**
  * This class extends AbstractOAuthEventInterceptor and listen to oauth token related events.
@@ -187,7 +190,7 @@ public class OauthDPoPInterceptorHandlerProxy extends AbstractOAuthEventIntercep
             SignedJWT signedJwt = SignedJWT.parse(dPoPProof);
             JWSHeader header = signedJwt.getHeader();
             dPoPHeaderCheck(header);
-            dPoPPayloadCheck(signedJwt.getJWTClaimsSet(), new Timestamp(new Date().getTime()));
+            dPoPPayloadCheck(signedJwt.getJWTClaimsSet(), new Timestamp(new Date().getTime()), tokReqMsgCtx);
             return isValidSignature(header.getJWK().toString(), signedJwt, tokReqMsgCtx);
 
         } catch (ParseException e) {
@@ -248,16 +251,28 @@ public class OauthDPoPInterceptorHandlerProxy extends AbstractOAuthEventIntercep
         return signedJwt.verify(jwsVerifier);
     }
 
-    private void dPoPPayloadCheck(JWTClaimsSet jwtClaimsSet, Timestamp currentTimestamp) throws IdentityOAuth2Exception {
+    private void dPoPPayloadCheck(JWTClaimsSet jwtClaimsSet, Timestamp currentTimestamp, OAuthTokenReqMessageContext tokReqMsgCtx)
+            throws IdentityOAuth2Exception {
         if (jwtClaimsSet == null) {
             throw new IdentityOAuth2Exception("DPoP proof payload is invalid");
         } else {
-            if (jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_METHOD) == null || !HttpMethod.POST.equalsIgnoreCase(jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_METHOD).toString())) {
+            if (jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_METHOD) == null ||
+                    !HttpMethod.POST.equalsIgnoreCase(jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_METHOD).toString())) {
                 throw new IdentityOAuth2Exception(INVALID_DPOP_ERROR);
             }
-            if (jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_URI) == null) {
+
+            //TODO: Remove after fixing htu-hot-fix
+            String requestUrl = getURLHeader(tokReqMsgCtx.getOauth2AccessTokenReqDTO().getHttpRequestHeaders());
+
+            if (requestUrl == null) {
+                requestUrl = OAuth2Util.getIDTokenIssuer();
+            }
+
+            if (jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_URI) == null ||
+                    !StringUtils.equalsIgnoreCase(jwtClaimsSet.getClaim(DPoPConstants.DPOP_HTTP_URI).toString(), requestUrl)) {
                 throw new IdentityOAuth2Exception(INVALID_DPOP_ERROR);
             }
+
             if (jwtClaimsSet.getClaim(DPoPConstants.DPOP_ISSUE_AT) == null) {
                 throw new IdentityOAuth2Exception(INVALID_DPOP_ERROR);
             }
@@ -332,5 +347,18 @@ public class OauthDPoPInterceptorHandlerProxy extends AbstractOAuthEventIntercep
 
         OAuthAppDO oauthAppDO = OAuth2Util.getAppInformationByClientId(consumerKey);
         return oauthAppDO.getDpopState() != null ? oauthAppDO.getDpopState() : DPoPTokenState.DISABLED.toString();
+    }
+
+    // Get temporary URI header
+    //TODO: Remove after fixing htu-hot-fix
+    private String getURLHeader(HttpRequestHeader[] httpRequestHeaders) {
+        for (HttpRequestHeader httpRequestHeader : httpRequestHeaders) {
+            if (URI_HEADER.equalsIgnoreCase(httpRequestHeader.getName())) {
+                if (!ArrayUtils.isEmpty(httpRequestHeader.getValue())) {
+                    return httpRequestHeader.getValue()[0];
+                }
+            }
+        }
+        return null;
     }
 }

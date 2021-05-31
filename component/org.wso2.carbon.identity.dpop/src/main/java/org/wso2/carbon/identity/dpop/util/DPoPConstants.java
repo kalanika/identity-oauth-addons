@@ -10,4 +10,8 @@ public class DPoPConstants {
     public static final String DPOP_JWT_TYPE = "dpop+jwt";
     public static final String DPOP_TOKEN_TYPE = "DPoP";
     public static final String INVALID_DPOP_ERROR = "Invalid DPoP Proof";
+
+    //TODO: Remove after fixing htu-hot-fix
+    public static final String URI_HEADER = "URL";
+    public static final String TOKEN_ENDPOINT_URI = "oauth2/token";
 }
